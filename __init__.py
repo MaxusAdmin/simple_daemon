@@ -1,24 +1,10 @@
-""" Simple Daemon - уж очень простой daemon.
+""" Simple Daemon - очень простая имитация системного сервиса или daemon
 
-Назначение:
-    Данный модуль был разработан для более эффективной интеграции прикладных программ в ОС в качестве
-    "сервисов" системы systemd. Сервис (в рамках данного модуля) - это такая программа, которая работает по
-    принципу "While True: pass".
-
-    +--------------------------------------------------------------+
-    | ОС +-+                                                       |
-    |      |                                                       |
-    |  signals -+                                                  |
-    |           |                                                  |
-    |  SimpleDaemon (wrapper) +---> /var/log/simple_daemon.log     |
-    |                         |        |                           |
-    |                         APP -----+                           |
-    +--------------------------------------------------------------+
-
-Каждый сервис должен:
-    - уметь обрабатывать сигналы (SIGINT, SIGTERM).
-    - иметь подсистему логирования (как минимум 2 уровня логирования: debug, info).
-    - иметь два режима обработки прерываний (агрессивный и пассивный).
+Задачи, которые решает данный модуль:
+ > Ведение логирования на основе модуля logging(https://docs.python.org/3/library/logging.html)
+ > Обработка сигналов signal.SIGINT, signal.SIGTERM на основе модуля signal(https://docs.python.org/3/library/signal.html)
+ > Простая интеграция в качестве daemon в Systemd(https://ru.wikipedia.org/wiki/Systemd)
+ > Два режима прерывания программы (агрессивный и пассивный см. ниже)
 
 Описание возможностей:
     1. Обработка сигналов прерывания. Когда используется цикл работы программы типа - "While True: pass", то нужно
@@ -31,6 +17,7 @@
 
        При агрессивном режиме работы будет возбуждаться исключение SimpleDaemonExit.
        При пассивном режиме работы переменная interrupted == True и исключение не возбуждается.
+
     2. Подсистема логирования. Подсистема логирования базируется но модуле logging.
                          +--------------+
                          | SimpleDaemon |
@@ -50,26 +37,36 @@
             Основное метсо журнала событий (log - файла, можно переопределить) - SimpleDaemon.log_path
             Основное наименованиа журнала событий (log - файла, можно переопределить) - - SimpleDaemon.log_name
          - Stream(Stdout)
-            Вывод сообщений в stdout (можно переопределить, default: False) - SimpleDaemon.stream
+            Вывод сообщений в stdout (default: False, можно переопределить) - SimpleDaemon.stream
          - Syslog(Systemd)
-            Вывод сообщений в /dev/log (можно переопределить, default: False) - SimpleDaemon.syslog
-            Примечаение:
+            Вывод сообщений в /dev/log (default: False, можно переопределить) - SimpleDaemon.syslog
+
             Фильтрация событий journalctl
                 1. journalctl -f (real time)
                 2. journalctl _PID=$PID (filter on PID)
                 3. journalctl _UID=$ID (filter on user $ID)
-                4. journalctl -F _UID (Вывести на консоль список пользователей, о которых имеются записи в логах, можно
-                   так:)
+                4. journalctl -F _UID (Вывести на консоль список пользователей, о которых имеются записи в логах)
 
        Ротация журнала событий:
          Максимальный размер журнала в мегабайт (можно переопределить, default: 1mb) - SimpleDaemon.max_size_byte_log
          Максимальное кол-во файлов ротации (можно переопределить, default: 2) - SimpleDaemon.max_count_file_rotation
 
-       Уровни логирования класса SimpleDaemon:
-        - info: int 20
-        - debug: int 10
+       Уровни логирования:
+       > DEBUG(10)    Detailed information, typically of interest only when diagnosing problems.
+       > INFO(20)     Confirmation that things are working as expected.
+       > WARNING(30)  An indication that something unexpected happened, or indicative of some problem in the near future (e.g. ‘disk space low’). The software is still working as expected.
+       > ERROR(40)    Due to a more serious problem, the software has not been able to perform some function.
+       > CRITICAL(50) A serious error, indicating that the program itself may be unable to continue running.
+       > NOTSET(0)    Mute
 
-       Доступные уровни логирования для разработчика - наследуются от модуля logging.
+    3. Подсистема анализа затраченного времени - Timekeeper.
+
+        Когда нужно подсчитать время работы основного While: True, то первое решение это t_end - t_start...
+        Но когда нужно посдчитать время работы в разных модулях, то хочется чего-то более просто и не брасающегося в галаза.
+        Timekeeper - простой класс, который сможет сказать сколько было потрачено времени на выполнение полного цикла
+        While: True + он может еще и подождать (run_interval_sec = 60 sec) если это нужно.
+
+        Иногда это очень полезно...
 
 
 Алгоритм работы:
@@ -141,11 +138,13 @@ import os
 import signal
 import logging
 from logging.handlers import RotatingFileHandler, SysLogHandler
+from datetime import datetime
+from time import sleep
 
 __author__ = 'Maxus Admin'
 __status__ = 'production'
 __version__ = '0.1'
-__all__ = ['SimpleDaemon']
+__all__ = ['SimpleDaemon', 'Timekeeper']
 
 
 class SimpleDaemonExit(Exception):
@@ -167,9 +166,9 @@ class SimpleDaemon(object):
     interrupt_mode = False
     name_app = 'SimpleDaemon'.upper()
     log_lvl = 10
-    log_path = '/var/log/'
+    log_path = '/tmp/'
     log_name = 'simple_daemon.log'
-    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_format = '%(asctime)s - APP:[%(name)s] - [%(levelno)s]%(levelname)s - MSG:> %(message)s'
     stream = False
     syslog = False
 
@@ -257,3 +256,27 @@ class SimpleDaemon(object):
     @property
     def interrupted(self):
         return self._interrupted
+
+
+class Timekeeper(object):
+    def __init__(self, log, run_interval_sec=60):
+        self.log = log
+        self.time_start = datetime.now()
+        # Базовый интервал ожидания == 60 sec
+        self.run_interval_sec = run_interval_sec
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.time_stop = datetime.now()
+        difference = (self.time_stop - self.time_start)
+        if difference.seconds == 0:
+            self.log.info(f"RunTimeLoop: {difference.microseconds} microseconds")
+        else:
+            self.log.info(f"RunTimeLoop: {difference.seconds} seconds, {difference.microseconds} microseconds")
+        if self.run_interval_sec:
+            if difference.seconds < self.run_interval_sec:
+                delta_sec = self.run_interval_sec - difference.seconds
+                self.log.debug(f"SleepAfterLoop: {delta_sec} sec")
+                sleep(delta_sec)
