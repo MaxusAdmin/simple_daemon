@@ -137,12 +137,12 @@ kill -15 $PID
     with loop_daemon(name_app='MyBestSimpleDaemon', log_path='/tmp', log_name='loop_simple_daemon.log', stream=True, log_lvl=10) as dh:
         with timekeeper(log=dh.log):
             while True:
-                if dh.interrupted: break  # <- я обычно так выхожу и цикла
+                if dh.interrupted: break  # <- я обычно так выхожу из цикла
                 
                 # to do something interesting    
                 pass
                 
-                if dh.interrupted: break  # <- я обычно так выхожу и цикла
+                if dh.interrupted: break  # <- я обычно так выхожу из цикла
 ```
 
 **Timekeeper: пусть цикл работает с интервалом в 60 сек**
@@ -151,15 +151,15 @@ kill -15 $PID
     from simple_daemon import SimpleDaemon as loop_daemon
     
     with loop_daemon(name_app='MyBestSimpleDaemon', log_path='/tmp', log_name='loop_simple_daemon.log', stream=True, log_lvl=10) as dh:
-        # run_interval_sec - указаывает сколько нужно будет подождать до следующего запуска цикла
+        # run_interval_sec - указывает сколько нужно будет подождать до следующего запуска цикла
         # + эффективный sleep - это значит, что если цикл отработал за 6 секунд а run_interval_sec = 60
         # то время ожидание будет 60 - 6 = 54 сек.
         with timekeeper(log=dh.log, run_interval_sec=60):
             while True:
-                if dh.interrupted: break  # <- я обычно так выхожу и цикла
+                if dh.interrupted: break  # <- я обычно так выхожу из цикла
                 
                 # to do something interesting    
                 pass
                 
-                if dh.interrupted: break  # <- я обычно так выхожу и цикла
+                if dh.interrupted: break  # <- я обычно так выхожу из цикла
 ```
